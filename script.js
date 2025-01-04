@@ -53,11 +53,30 @@ const addressList = [
     "0xa90b3a23e638d4d7a71c8a0ad6c020801c7b965a8554781fe71437c6d93cf200"
 ];
 
+// 在 addressList 数组后添加配置
+const CONFIG = {
+    REFRESH_INTERVAL: 60000, // 刷新间隔，默认60秒
+    BATCH_SIZE: 10, // 每批处理的地址数量
+    COUNTDOWN_UPDATE_INTERVAL: 1000 // 倒计时更新间隔，1秒
+};
+
+let refreshTimer = null; // 用于存储定时器ID
+let countdownTimer = null; // 用于存储倒计时定时器ID
+let nextRefreshTime = null; // 用于存储下次刷新时间
+
+// 添加一个工具函数来将数组分成小块
+function chunkArray(array, size) {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+}
+
 async function getBalance(address) {
     try {
-        
-        
-        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${address}/resource/0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>`);
+        const cleanAddress = address.replace('0x', '');
+        const response = await fetch(`https://fullnode.mainnet.aptoslabs.com/v1/accounts/${cleanAddress}/resource/0x1::coin::CoinStore<0x1::aptos_coin::AptosCoin>`);
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -66,7 +85,6 @@ async function getBalance(address) {
         const data = await response.json();
         
         if (data && data.data && data.data.coin && data.data.coin.value) {
-            // 将余额转换为 APT（除以 10^8）
             return Number(data.data.coin.value) / 100000000;
         }
         return 0;
@@ -79,20 +97,151 @@ async function getBalance(address) {
 async function displayBalances() {
     const tableBody = document.getElementById('tableBody');
     const loading = document.getElementById('loading');
-
-    for (const address of addressList) {
-        const balance = await getBalance(address);
+    
+    loading.style.display = 'block';
+    tableBody.innerHTML = ''; // 清空现有数据
+    
+    const addressChunks = chunkArray(addressList, CONFIG.BATCH_SIZE);
+    let maxBalance = 0;
+    let maxBalanceRow = null;
+    
+    try {
+        let currentIndex = 0; // 用于跟踪全局索引
+        for (const chunk of addressChunks) {
+            const balancePromises = chunk.map(async (address, index) => {
+                const balance = await getBalance(address);
+                return { 
+                    address, 
+                    balance,
+                    index: currentIndex + index + 1 // 序号从1开始
+                };
+            });
+            
+            const results = await Promise.all(balancePromises);
+            
+            results.forEach(({ address, balance, index }) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index}</td>
+                    <td>${address}</td>
+                    <td>${balance.toFixed(8)} APT</td>
+                `;
+                tableBody.appendChild(row);
+                
+                if (balance > maxBalance) {
+                    maxBalance = balance;
+                    maxBalanceRow = row;
+                }
+            });
+            
+            currentIndex += chunk.length; // 更新全局索引
+        }
         
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${address}</td>
-            <td>${balance.toFixed(8)} APT</td>
-        `;
-        tableBody.appendChild(row);
+        // 滚动到最大余额的位置
+        if (maxBalanceRow) {
+            setTimeout(() => {
+                maxBalanceRow.style.backgroundColor = '#fff3cd'; // 高亮显示最大余额行
+                maxBalanceRow.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center' 
+                });
+            }, 100); // 短暂延迟确保DOM已完全更新
+        }
+    } catch (error) {
+        console.error('查询余额时发生错误:', error);
+    } finally {
+        loading.style.display = 'none';
+        updateLastRefreshTime();
     }
-
-    loading.style.display = 'none';
 }
 
-// 页面加载完成后开始查询余额
-window.addEventListener('load', displayBalances);
+// 添加更新最后刷新时间的函数
+function updateLastRefreshTime() {
+    const now = new Date();
+    const timeString = now.toLocaleTimeString();
+    document.getElementById('lastRefresh').textContent = `最后更新: ${timeString}`;
+}
+
+// 添加更新倒计时的函数
+function updateCountdown() {
+    if (!nextRefreshTime) return;
+    
+    const now = new Date().getTime();
+    const timeLeft = Math.max(0, nextRefreshTime - now);
+    const secondsLeft = Math.ceil(timeLeft / 1000);
+    
+    const countdownElement = document.getElementById('countdown');
+    countdownElement.textContent = `下次刷新: ${secondsLeft} 秒`;
+    
+    if (timeLeft <= 0 && countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+}
+
+// 修改 startAutoRefresh 函数
+function startAutoRefresh() {
+    // 清除可能存在的旧定时器
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+    }
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+    }
+    
+    // 设置新的定时器
+    refreshTimer = setInterval(() => {
+        displayBalances();
+        // 更新下次刷新时间
+        nextRefreshTime = new Date().getTime() + CONFIG.REFRESH_INTERVAL;
+    }, CONFIG.REFRESH_INTERVAL);
+    
+    // 立即设置下次刷新时间
+    nextRefreshTime = new Date().getTime() + CONFIG.REFRESH_INTERVAL;
+    
+    // 启动倒计时更新
+    countdownTimer = setInterval(updateCountdown, CONFIG.COUNTDOWN_UPDATE_INTERVAL);
+    
+    // 更新按钮状态
+    document.getElementById('refreshToggle').textContent = '停止自动刷新';
+}
+
+// 修改 stopAutoRefresh 函数
+function stopAutoRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+    
+    nextRefreshTime = null;
+    document.getElementById('countdown').textContent = '自动刷新已停止';
+    document.getElementById('refreshToggle').textContent = '开始自动刷新';
+}
+
+// 修改 manualRefresh 函数
+function manualRefresh() {
+    displayBalances();
+    if (refreshTimer) {
+        // 重置倒计时
+        nextRefreshTime = new Date().getTime() + CONFIG.REFRESH_INTERVAL;
+    }
+}
+
+// 添加切换自动刷新的函数
+function toggleAutoRefresh() {
+    if (refreshTimer) {
+        stopAutoRefresh();
+    } else {
+        startAutoRefresh();
+    }
+}
+
+// 页面加载完成后的初始化
+window.addEventListener('load', () => {
+    displayBalances(); // 首次加载数据
+    startAutoRefresh(); // 开始自动刷新
+});
