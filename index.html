@@ -22,14 +22,58 @@
             text-align: center;
             margin: 20px;
         }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+        button:hover {
+            background-color: #f0f0f0;
+        }
+        #lastRefresh, #countdown {
+            color: #666;
+            white-space: nowrap;
+        }
+        .divider {
+            color: #ddd;
+            margin: 0 5px;
+        }
+        html {
+            scroll-behavior: smooth;
+        }
+        tr.max-balance {
+            background-color: #fff3cd;
+            transition: background-color 0.3s ease;
+        }
     </style>
 </head>
 <body>
-    <h1>APT余额查询</h1>
+    
+    <div class="controls">
+        <p>APT余额查询</p>
+        <button onclick="manualRefresh()">立即刷新</button>
+        <button id="refreshToggle" onclick="toggleAutoRefresh()">停止自动刷新</button>
+        <span class="divider">|</span>
+        <span id="lastRefresh">最后更新: --:--:--</span>
+        <span class="divider">|</span>
+        <span id="countdown">等待开始自动刷新...</span>
+    </div>
     <div id="loading" class="loading">正在加载数据...</div>
     <table id="balanceTable">
         <thead>
             <tr>
+                <th>序号</th>
                 <th>地址</th>
                 <th>余额 (APT)</th>
             </tr>
